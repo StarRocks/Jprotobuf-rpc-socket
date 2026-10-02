@@ -4,10 +4,12 @@
 
 package com.baidu.jprotobuf.pbrpc.transport;
 
+import java.nio.channels.spi.SelectorProvider;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -17,6 +19,7 @@ import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.DefaultMessageSizeEstimator;
+import io.netty.channel.DefaultSelectStrategyFactory;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.epoll.EpollEventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -24,6 +27,7 @@ import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.util.HashedWheelTimer;
 import io.netty.util.Timer;
 import io.netty.util.concurrent.DefaultThreadFactory;
+import io.netty.util.concurrent.ThreadPerTaskExecutor;
 
 /**
  * RPC client handler class.
@@ -109,12 +113,16 @@ public class RpcClient extends Bootstrap {
      * @param rpcClientOptions the rpc client options
      */
     public RpcClient(Class<? extends Channel> clientChannelClass, RpcClientOptions rpcClientOptions) {
+        // A connection stays on the event loop it is registered with for its whole life, so new connections must not
+        // be handed to a loop whose thread has died; see LiveEventExecutorChooserFactory.
+        Executor executor = new ThreadPerTaskExecutor(new DefaultThreadFactory(CLIENT_T_NAME));
         if (rpcClientOptions.getIoEventGroupType() == RpcClientOptions.POLL_EVENT_GROUP) {
-            this.workerGroup = new NioEventLoopGroup(rpcClientOptions.getWorkGroupThreadSize(),
-                    new DefaultThreadFactory(CLIENT_T_NAME));
+            this.workerGroup = new NioEventLoopGroup(rpcClientOptions.getWorkGroupThreadSize(), executor,
+                    LiveEventExecutorChooserFactory.INSTANCE, SelectorProvider.provider(),
+                    DefaultSelectStrategyFactory.INSTANCE);
         } else {
-            this.workerGroup = new EpollEventLoopGroup(rpcClientOptions.getWorkGroupThreadSize(),
-                    new DefaultThreadFactory(CLIENT_T_NAME));
+            this.workerGroup = new EpollEventLoopGroup(rpcClientOptions.getWorkGroupThreadSize(), executor,
+                    LiveEventExecutorChooserFactory.INSTANCE, DefaultSelectStrategyFactory.INSTANCE);
         }
         this.group(workerGroup);
         this.channel(clientChannelClass);

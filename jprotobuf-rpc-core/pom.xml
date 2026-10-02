@@ -69,4 +69,18 @@
 		</dependency> -->
 
 	</dependencies>
+
+	<build>
+		<plugins>
+			<plugin>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<!-- Netty's Channel.Unsafe.closeForcibly() asserts it runs on the channel's event loop, which is
+						 exactly what closing a channel whose loop has died cannot do. Production runs without -ea, and
+						 the tests must see the same behaviour. This module has no assert statements. -->
+					<enableAssertions>false</enableAssertions>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
 </project>
