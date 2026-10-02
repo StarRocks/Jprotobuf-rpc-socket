@@ -26,6 +26,7 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.util.HashedWheelTimer;
 import io.netty.util.Timer;
+import io.netty.util.concurrent.DefaultEventExecutorChooserFactory;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import io.netty.util.concurrent.ThreadPerTaskExecutor;
 
@@ -63,6 +64,9 @@ public class RpcClient extends Bootstrap {
 
     /** The worker group. */
     private EventLoopGroup workerGroup;
+
+    /** Chooses the worker group's loops and replaces those that die. */
+    private LiveEventExecutorChooserFactory chooserFactory;
 
     /** The Constant INSTANCE_COUNT. */
     private static final AtomicInteger INSTANCE_COUNT = new AtomicInteger();
@@ -114,15 +118,23 @@ public class RpcClient extends Bootstrap {
      */
     public RpcClient(Class<? extends Channel> clientChannelClass, RpcClientOptions rpcClientOptions) {
         // A connection stays on the event loop it is registered with for its whole life, so new connections must not
-        // be handed to a loop whose thread has died; see LiveEventExecutorChooserFactory.
-        Executor executor = new ThreadPerTaskExecutor(new DefaultThreadFactory(CLIENT_T_NAME));
+        // be handed to a loop whose thread has died, and a dead loop has to be replaced to keep the group's width;
+        // see LiveEventExecutorChooserFactory. Replacements share the executor, so their threads carry on the
+        // Jprotobuf-RPC-Client-N-M numbering.
+        final Executor executor = new ThreadPerTaskExecutor(new DefaultThreadFactory(CLIENT_T_NAME));
         if (rpcClientOptions.getIoEventGroupType() == RpcClientOptions.POLL_EVENT_GROUP) {
+            final SelectorProvider selectorProvider = SelectorProvider.provider();
+            this.chooserFactory = new LiveEventExecutorChooserFactory(
+                    () -> new NioEventLoopGroup(1, executor, DefaultEventExecutorChooserFactory.INSTANCE,
+                            selectorProvider, DefaultSelectStrategyFactory.INSTANCE));
             this.workerGroup = new NioEventLoopGroup(rpcClientOptions.getWorkGroupThreadSize(), executor,
-                    LiveEventExecutorChooserFactory.INSTANCE, SelectorProvider.provider(),
-                    DefaultSelectStrategyFactory.INSTANCE);
+                    chooserFactory, selectorProvider, DefaultSelectStrategyFactory.INSTANCE);
         } else {
+            this.chooserFactory = new LiveEventExecutorChooserFactory(
+                    () -> new EpollEventLoopGroup(1, executor, DefaultEventExecutorChooserFactory.INSTANCE,
+                            DefaultSelectStrategyFactory.INSTANCE));
             this.workerGroup = new EpollEventLoopGroup(rpcClientOptions.getWorkGroupThreadSize(), executor,
-                    LiveEventExecutorChooserFactory.INSTANCE, DefaultSelectStrategyFactory.INSTANCE);
+                    chooserFactory, DefaultSelectStrategyFactory.INSTANCE);
         }
         this.group(workerGroup);
         this.channel(clientChannelClass);
@@ -254,6 +266,10 @@ public class RpcClient extends Bootstrap {
      * @see org.jboss.netty.bootstrap.Bootstrap#shutdown()
      */
     public void shutdown() {
+        if (this.chooserFactory != null) {
+            // Before the group: a loop that terminates during the group's shutdown must not be replaced.
+            this.chooserFactory.shutdown();
+        }
         if (this.workerGroup != null) {
             this.workerGroup.shutdownGracefully();
         }

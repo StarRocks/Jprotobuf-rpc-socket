@@ -19,10 +19,11 @@ import java.nio.ByteBuffer;
 import java.nio.channels.Pipe;
 import java.nio.channels.SelectableChannel;
 import java.nio.channels.SelectionKey;
+import java.nio.channels.spi.SelectorProvider;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.AfterClass;
@@ -40,6 +41,7 @@ import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.DefaultSelectStrategyFactory;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoop;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -47,7 +49,8 @@ import io.netty.channel.nio.NioTask;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.util.concurrent.EventExecutor;
-import io.netty.util.concurrent.EventExecutorChooserFactory.EventExecutorChooser;
+import io.netty.util.concurrent.DefaultThreadFactory;
+import io.netty.util.concurrent.ThreadPerTaskExecutor;
 
 /**
  * An event loop of the client dies the way an OutOfMemoryError kills it in production, and the client must keep
@@ -225,34 +228,102 @@ public class DeadEventLoopTest {
     }
 
     @Test
-    public void testChooserSkipsDeadEventLoops() throws Exception {
-        NioEventLoopGroup group = new NioEventLoopGroup(3);
+    public void testCallsRecoverWhenTheOnlyEventLoopDies() throws Exception {
+        // With nothing left to fall back on, the client only recovers if the dead loop is replaced.
+        RpcClient client = newClient(1, true);
         try {
-            EventExecutor[] executors = new EventExecutor[3];
-            Iterator<EventExecutor> iterator = group.iterator();
-            for (int i = 0; i < executors.length; i++) {
-                executors[i] = iterator.next();
-            }
-            EventExecutorChooser chooser = LiveEventExecutorChooserFactory.INSTANCE.newChooser(executors);
+            EchoService service = stub(client);
+            Assert.assertEquals("warm", service.echo(echo("warm")).text);
 
-            Set<EventExecutor> chosen = new HashSet<EventExecutor>();
-            for (int i = 0; i < 6; i++) {
-                chosen.add(chooser.next());
-            }
-            Assert.assertEquals("round robin over all live loops", 3, chosen.size());
+            kill(client.config().group().iterator().next());
 
-            kill(executors[1]);
-            for (int i = 0; i < 6; i++) {
-                Assert.assertNotSame(executors[1], chooser.next());
+            for (int i = 0; i < 3; i++) {
+                String text = "after-" + i;
+                long start = System.nanoTime();
+                Assert.assertEquals(text, service.echo(echo(text)).text);
+                long elapsed = millisSince(start);
+                Assert.assertTrue("call " + i + " took " + elapsed + " ms", elapsed < FAST_MS);
             }
-
-            kill(executors[0]);
-            kill(executors[2]);
-            // Nothing is left to skip to; the chooser still answers rather than spinning.
-            Assert.assertNotNull(chooser.next());
         } finally {
+            client.shutdown();
+        }
+    }
+
+    @Test
+    public void testReplacementsAreShutDownWithTheClient() throws Exception {
+        RpcClient client = newClient(1, true);
+        EventExecutor original = client.config().group().iterator().next();
+        EventExecutor replacement;
+        try {
+            EchoService service = stub(client);
+            Assert.assertEquals("warm", service.echo(echo("warm")).text);
+            kill(original);
+            Assert.assertEquals("again", service.echo(echo("again")).text);
+
+            replacement = client.config().group().next();
+            Assert.assertNotSame(original, replacement);
+            Assert.assertFalse(replacement.isShuttingDown());
+        } finally {
+            client.shutdown();
+        }
+        // The replacement is not part of the group, so the group's own shutdown would never reach it.
+        Assert.assertTrue(replacement.terminationFuture().await(10, TimeUnit.SECONDS));
+    }
+
+    @Test
+    public void testChooserReplacesDeadEventLoops() throws Exception {
+        final Executor executor = new ThreadPerTaskExecutor(new DefaultThreadFactory("chooser-test"));
+        LiveEventExecutorChooserFactory factory = new LiveEventExecutorChooserFactory(
+                () -> new NioEventLoopGroup(1, executor));
+        NioEventLoopGroup group = new NioEventLoopGroup(3, executor, factory, SelectorProvider.provider(),
+                DefaultSelectStrategyFactory.INSTANCE);
+        Set<EventExecutor> replacements = new HashSet<EventExecutor>();
+        try {
+            Set<EventExecutor> originals = new HashSet<EventExecutor>();
+            for (EventExecutor executor0 : group) {
+                originals.add(executor0);
+            }
+            Assert.assertEquals("round robin over every slot", originals, nextLoops(group));
+
+            // One loop dies: its slot gets a fresh loop and the group keeps its width.
+            EventExecutor dead = originals.iterator().next();
+            kill(dead);
+            Set<EventExecutor> chosen = nextLoops(group);
+            Assert.assertEquals(3, chosen.size());
+            Assert.assertFalse(chosen.contains(dead));
+            Set<EventExecutor> fresh = new HashSet<EventExecutor>(chosen);
+            fresh.removeAll(originals);
+            Assert.assertEquals(1, fresh.size());
+            replacements.addAll(fresh);
+
+            // A replacement that dies is replaced in turn, and so is every other loop.
+            for (EventExecutor executor0 : chosen) {
+                kill(executor0);
+            }
+            chosen = nextLoops(group);
+            Assert.assertEquals(3, chosen.size());
+            for (EventExecutor executor0 : chosen) {
+                Assert.assertFalse(executor0.isShuttingDown());
+                Assert.assertFalse(originals.contains(executor0));
+                Assert.assertFalse(replacements.contains(executor0));
+            }
+            replacements.addAll(chosen);
+        } finally {
+            factory.shutdown();
             shutdown(group);
         }
+        for (EventExecutor replacement : replacements) {
+            Assert.assertTrue(replacement.terminationFuture().await(10, TimeUnit.SECONDS));
+        }
+    }
+
+    /** Asks the group for twice as many loops as it has slots and returns the distinct ones. */
+    private static Set<EventExecutor> nextLoops(EventLoopGroup group) {
+        Set<EventExecutor> chosen = new HashSet<EventExecutor>();
+        for (int i = 0; i < 6; i++) {
+            chosen.add(group.next());
+        }
+        return chosen;
     }
 
     @Test
