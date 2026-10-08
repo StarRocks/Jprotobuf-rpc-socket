@@ -1,24 +1,24 @@
-#### Qucik Start ####
-##### 客户端开发 #####
-1.EchoService功用实现
+#### Quick Start ####
+##### Client #####
+1. Define the EchoService data object
 
-EchoService 提供一个echo方法 ，参数对象EchoInfo只有一个message属性。
-下面是EchoInfo对象定义
+EchoService provides an `echo` method whose parameter object, EchoInfo, has a single `message` field.
+EchoInfo is defined as follows:
 ```java
 public class EchoInfo {
     
-    @Protobuf(order = 1)
+    @Protobuf(order = 1)
     public String message;
 }
 
 ```
-注解方式的定义可以极大简化大家的工作量，上面等同于下面的IDEL配置
+The annotation-based definition saves a lot of work. It is equivalent to the following IDL:
 ```property
 package pkg;  
 
 option java_package = "com.baidu.bjf.remoting.protobuf.rpc";
 
-//这里声明输出的java的类名  
+// the generated Java class name
 option java_outer_classname = "EchoInfo";  
 
 message InterClassName {  
@@ -27,7 +27,7 @@ message InterClassName {
 
 
 ```
-2.定义EchoService接口
+2. Define the EchoService interface
 ```java
 public interface EchoService {
 
@@ -45,17 +45,17 @@ public interface EchoService {
 }
 
 ```
-RPC的方法必须要指定@ProtobufRPC注解. serviceName与methodName要与服务端保持一致。
-这里未指定methodName，则使用方法的名称 "echo"
+RPC methods must be annotated with `@ProtobufRPC`. `serviceName` and `methodName` must match the server side.
+Since `methodName` is not specified here, the method name `echo` is used.
 
 
-3.创建RPC Client进行访问
+3. Create an RPC client and call the service
 ```java
 RpcClient rpcClient = new RpcClient();
-// 创建EchoService代理
+// create the EchoService proxy
 ProtobufRpcProxy<EchoService> pbrpcProxy = new ProtobufRpcProxy<EchoService>(rpcClient, EchoService.class);
 pbrpcProxy.setPort(1031);
-// 动态生成代理实例
+// generate the proxy instance
 EchoService echoService = pbrpcProxy.proxy();
 EchoInfo request = new EchoInfo();
 request.message = "hello";
@@ -63,8 +63,8 @@ EchoInfo response = echoService.echo(request);
 rpcClient.stop();
 ```
 
-##### 服务端开发 #####
-1.开发服务实现类
+##### Server #####
+1. Implement the service
 ```java
 public class EchoServiceImpl {
 
@@ -77,9 +77,9 @@ public class EchoServiceImpl {
     }
 }
 ```
-服务发布的RPC方法必须用@ProtobufPRCService注解进行标识
+Published RPC methods must be annotated with `@ProtobufRPCService`.
 
-2.发布RPC服务
+2. Publish the RPC service
 ```java
 	RpcServer rpcServer = new RpcServer();
 	
@@ -87,18 +87,18 @@ public class EchoServiceImpl {
 	rpcServer.registerService(echoServiceImpl);
 	rpcServer.start(1031);
 ```
-上面的代码实现把 EchoServiceImpl 的RPC服务发布出去
+The code above publishes the RPC service of EchoServiceImpl.
 
-#### 附件功能 ####
-由于protobuf不适合大数据的序列化传输，针对附件需求的提供的方案如下：
+#### Attachments ####
+Protobuf is not well suited for serializing large payloads, so large data can be sent as an attachment:
 
-##### 客户端开发 #####
+##### Client #####
 ```java
     @ProtobufRPC(serviceName = "echoService", onceTalkTimeout = 450, 
             attachmentHandler = EchoClientAttachmentHandler.class, logIDGenerator = EchoLogIDGenerator.class)
     EchoInfo echoWithAttachement(EchoInfo info);
 ```
-EchoClientAttachmentHandler实现示例如下：
+An example EchoClientAttachmentHandler implementation:
 ```java
 public class EchoClientAttachmentHandler implements ClientAttachmentHandler {
 
@@ -129,7 +129,7 @@ public class EchoClientAttachmentHandler implements ClientAttachmentHandler {
 
 }
 ```
-##### 服务端开发 #####
+##### Server #####
 ```java
     @ProtobufRPCService(serviceName = "echoService", methodName = "echoWithAttachement", 
             attachmentHandler = EchoServerAttachmentHandler.class)
@@ -137,7 +137,7 @@ public class EchoClientAttachmentHandler implements ClientAttachmentHandler {
         return doEcho(info);
     }
 ```
-EchoServerAttachmentHandler实现示例如下：
+An example EchoServerAttachmentHandler implementation:
 ```java
 public class EchoServerAttachmentHandler implements ServerAttachmentHandler {
 
@@ -156,10 +156,9 @@ public class EchoServerAttachmentHandler implements ServerAttachmentHandler {
 }
 ```
 
-#### 压缩功能支持 ####
+#### Compression ####
 
-开启压缩功能比较简单
-只需要在客户端指定压缩设置即可，目前支持GZIP和SNAPPY两种
+Enabling compression is simple: just specify the compression type on the client side. GZIP and SNAPPY are supported.
 
 ```java
     @ProtobufRPC(serviceName = "echoService", onceTalkTimeout = 1500, compressType = CompressType.GZIP,
@@ -171,10 +170,10 @@ public class EchoServerAttachmentHandler implements ServerAttachmentHandler {
     EchoInfo echoSnappy(EchoInfo info);
 ```
 
-#### 负载均衡功能支持 ####
-该功能在2.16版本之后支持，由HaProtobufRpcProxy 支持
+#### Load Balancing ####
+Supported since 2.16, provided by HaProtobufRpcProxy.
 
-HaProtobufRpcProxy的服务列表需要NamingService接口支持
+HaProtobufRpcProxy gets its server list from a NamingService implementation:
 ```java
 public interface NamingService {
 
@@ -188,19 +187,19 @@ public interface NamingService {
 }
 ```
 
-下面是一个使用示例：
-HaProtobufRpcProxy 的构建非常简单，代码如下：
+Here is an example.
+Creating a HaProtobufRpcProxy is simple:
 
 ```java
 HaProtobufRpcProxy<EchoService> pbrpcProxy =
                     new HaProtobufRpcProxy<EchoService>(rpcClient, EchoService.class, getNamingService());
 EchoService proxy = pbrpcProxy.proxy();
 ```
-重要说明：
-上面的代码实现没有指定负载方式，则使用轮循方式访问，权重都为1. 负载过程中如果出现某台服务出现异常，则会从队列中摘出，后台启动心跳检测程序，默认1秒一次。检测方式则只是ping接口方式。
+Important:
+The code above does not specify a load balancing strategy, so round robin is used and every server has weight 1. If a server fails during load balancing, it is removed from the list and a background heartbeat check is started (once per second by default). The heartbeat only uses the ping interface.
 
 
-为了方便测试，下面通过一个模拟的NamingService接口实现
+For testing, here is a mock NamingService implementation:
 ```java
 public class DummyNamingService implements NamingService {
     
@@ -222,7 +221,7 @@ public class DummyNamingService implements NamingService {
     }
 
 }
-		// 使用示例
+		// usage
         address = new InetSocketAddress(1035);
         list.add(address);
 
@@ -230,16 +229,16 @@ public class DummyNamingService implements NamingService {
 
 ```
 
-更多示例请参见 单元测试代码：com.baidu.jprotobuf.pbrpc.client.ha.HaEchoServiceTest
+For more examples, see the unit test com.baidu.jprotobuf.pbrpc.client.ha.HaEchoServiceTest.
 
 
-#### Spring集成支持 ####
-该功能在2.17版本之后支持, 支持xml配置方式和注解方式两种。
-##### xml配置方式说明 #####
-**使用RpcServiceExporter暴露服务RPC server服务<br>**
-使用RpcServiceExporter，我们可以把EchoServiceImpl对象暴露成RPC服务。可以使用 RpcProxyFactoryBean 或API的方式来访问该接口。
+#### Spring Integration ####
+Supported since 2.17, with both XML configuration and annotations.
+##### XML configuration #####
+**Export an RPC server service with RpcServiceExporter<br>**
+RpcServiceExporter exposes the EchoServiceImpl object as an RPC service. Clients can then access it through RpcProxyFactoryBean or the API.
 
-首先使用@ProtobufRPCService在我们需要发布成服务的方法进行配置
+First, annotate the methods to publish with @ProtobufRPCService:
 
 ```java
 public class EchoServiceImpl {
@@ -251,7 +250,7 @@ public class EchoServiceImpl {
     }
 ```
 
-下面演示使用RpcServiceExporter来发布服务
+Then publish the service with RpcServiceExporter:
 ```xml
 	<bean id="echoService" class="com.baidu.jprotobuf.pbrpc.EchoServiceImpl"></bean>
 
@@ -266,13 +265,12 @@ public class EchoServiceImpl {
 	</bean>
 
 ```
-上面的xml配置实现把EchoServiceImpl类的 doEcho方法发布成rpc服务。 服务名称:echoService 服务方法:echo 端口 1031
+The XML above publishes the doEcho method of EchoServiceImpl as an RPC service. Service name: echoService, method: echo, port: 1031.
 
-注：RpcServiceExporter已经继承了RpcServiceOptions类，可以把所有RPC的额外配置属性
-通过属性方式进行配置.
+Note: RpcServiceExporter extends RpcServiceOptions, so all additional RPC options can be set as properties.
 
-**使用RpcProxyFactoryBean进行客户端连接<br>**
-针对上面发布的服务，我们可以单独编写一个接口，代码如下：
+**Connect a client with RpcProxyFactoryBean<br>**
+For the service published above, define an interface:
 ```java
 public interface EchoService {
     @ProtobufRPC(serviceName = "echoService", onceTalkTimeout = 1000)
@@ -280,7 +278,7 @@ public interface EchoService {
 }
 ```
 
-为了把服务客户端连接到上，我们将创建一个单独的Spring容器，包含这个简单对象和链接配置位的服务：
+To connect a client to the service, create a separate Spring container that contains the interface and the connection settings:
 ```xml
 	<bean id="echoServiceProxy" class="com.baidu.jprotobuf.pbrpc.spring.RpcProxyFactoryBean">
 		<property name="serviceInterface" value="com.baidu.jprotobuf.pbrpc.EchoService"></property>
@@ -288,13 +286,12 @@ public interface EchoService {
 	</bean>
 ```
 
-这样Spring会动态创建一个bean名称为echoServiceProxy，接口类型为EchoService的代理类。
+Spring then creates a proxy bean named echoServiceProxy of type EchoService.
 
-注：RpcProxyFactoryBean已经继承了RpcClientOptions类，可以把所有RPC的额外配置属性
-通过属性方式进行配置.
+Note: RpcProxyFactoryBean extends RpcClientOptions, so all additional RPC options can be set as properties.
 
-**使用HaRpcProxyFactoryBean进行客户端连接<br>**
-HaRpcProxyFactoryBean是对负载均衡功能的Spring集成支持。 配置也是非常简单，示例如下：
+**Connect a client with HaRpcProxyFactoryBean<br>**
+HaRpcProxyFactoryBean is the Spring integration for load balancing. The configuration is simple:
 
 ```xml
 	<bean id="namingService" class="com.baidu.jprotobuf.pbrpc.spring.UrlBasedNamingService">
@@ -311,10 +308,10 @@ HaRpcProxyFactoryBean是对负载均衡功能的Spring集成支持。 配置也�
 ```
 
 
-##### 注解配置方式说明 #####
-注解配置方式要比xml的配置简化很多，这也是我们更推荐的一种发布方式
+##### Annotation configuration #####
+Annotation configuration is much simpler than XML and is the recommended way.
 
-首先无论是发布服务还是声明客户端连接，都只需要配置一次以下信息
+Whether publishing services or declaring clients, the following only needs to be configured once:
 
 ```xml
 	<bean
@@ -326,9 +323,7 @@ HaRpcProxyFactoryBean是对负载均衡功能的Spring集成支持。 配置也�
 	</bean>
 ```
 
-使用spring boot方式，可以省去上面的配置
-
-下面的配置是推荐给大家，以更好的使用注解发布方式
+The following configuration is recommended for annotation-based publishing:
 
 ```xml
 
@@ -346,7 +341,7 @@ HaRpcProxyFactoryBean是对负载均衡功能的Spring集成支持。 配置也�
 
 ```
 
-**使用@RpcExporter暴露服务RPC server服务<br>**
+**Export an RPC server service with @RpcExporter<br>**
 ```java
 @Component
 @RpcExporter(port = "1031")
@@ -360,7 +355,7 @@ public class EchoServiceImpl {
 
 ```
 
-**使用@RpcProxy进行客户端连接<br>**
+**Connect a client with @RpcProxy<br>**
 ```java
 @Service("echoServiceClient")
 public class AnnotationEchoServiceClient {
@@ -375,8 +370,8 @@ public interface EchoService {
 }
 ```
 
-**使用@HaRpcProxy进行负载均衡客户端连接<br>**
-注：使用HaRpcProxy必须需要通过NamingService接口提供服务列表，注解方式则需要在xml中进行配置，然后在注解中指定
+**Connect a load-balanced client with @HaRpcProxy<br>**
+Note: HaRpcProxy requires a NamingService that provides the server list. With annotations, define it in XML and reference it from the annotation.
 
 ```xml
 	<bean id="namingService" class="com.baidu.jprotobuf.pbrpc.spring.UrlBasedNamingService">
@@ -401,10 +396,10 @@ public interface EchoService {
 }
 ```
 
-#### Redis注册服务使用 ####
-jprotobuf-rpc支持使用Redis来实现服务的注册与发现功能
+#### Redis Service Registry ####
+jprotobuf-rpc supports service registration and discovery based on Redis.
 
-示例配置如下：
+Example configuration:
 ```xml
     <bean id="namingService" class="com.baidu.pbrpc.register.redis.RedisRegistryService">
        <constructor-arg>
@@ -417,17 +412,17 @@ jprotobuf-rpc支持使用Redis来实现服务的注册与发现功能
        </constructor-arg>
        <property name="administrator" value="true"></property>
        <property name="group" value="default/"></property>
-<property name="expirePeriod" value="3000"></property>
-</bean>
+       <property name="expirePeriod" value="3000"></property>
+    </bean>
 
 ```
-RedisRegistryService属性：
-1.	expirePeriod 服务过期时间设置，当服务注册成功后，会写入最后的注册时间，然后会在定期更新服务存活时间(频率 expirePeriod/3)
-2.	administrator， 默认是false, 当设置为true时，会对redis上已经注册的服务已经过期的时间进行删除。 一般有一台服务进行清理即可，也可支持多台一起清理
-3.	group 表示分组，可以同一组名下的服务才有能力相互发现
+RedisRegistryService properties:
+1.	`expirePeriod`: service expiration time. After a service registers, its last registration time is written, and its liveness is refreshed periodically (every expirePeriod/3).
+2.	`administrator`: defaults to false. When set to true, expired services registered in Redis are deleted. Usually one server doing the cleanup is enough, but multiple servers can clean up together.
+3.	`group`: the group name. Only services in the same group can discover each other.
 
 
-服务的发布时使用示例
+Publishing a service:
 ```xml
   <bean class="com.baidu.jprotobuf.pbrpc.spring.RpcServiceExporter">
         <property name="servicePort" value="1031"></property>
@@ -436,13 +431,13 @@ RedisRegistryService属性：
                 <ref local="echoService" />
             </list>
         </property>
-		<property name="registryCenterService" ref="namingService">
+        <property name="registryCenterService" ref="namingService"></property>
         <property name="connectTimeout" value="1000"></property>
     </bean>
 
 ```
 
-客户端使用示例
+Client:
 ```xml
 <bean id="echoServiceProxy" class="com.baidu.jprotobuf.pbrpc.spring.HaRpcProxyFactoryBean">
         <property name="serviceInterface" value="com.baidu.jprotobuf.pbrpc.EchoService"></property>
@@ -451,16 +446,16 @@ RedisRegistryService属性：
 
 ```
 
-#### HTTP查看支持 ####
-该功能在3.1.1版本之后支持配置方式如下：
-1.       代码方式
+#### HTTP Management ####
+Supported since 3.1.1. It can be configured as follows:
+1.       In code
 ```java 
    RpcServerOptions rpcServerOptions = new RpcServerOptions();
    rpcServerOptions.setHttpServerPort(8866);
        
     RpcServer rpcServer = new RpcServer(rpcServerOptions);
  ```
-2.       Spring xml方式
+2.       Spring XML
 ```xml 
     <bean class="com.baidu.jprotobuf.pbrpc.spring.RpcServiceExporter">
         <property name="servicePort" value="1031"></property>
@@ -474,17 +469,19 @@ RedisRegistryService属性：
     </bean>
  ```
  
-3.       Spring注解方式
+3.       Spring annotations
 ```java
 @RpcExporter(port = "1033" , rpcServerOptionsBeanName = "rpcServerOptions")
 public class AnnotationEchoServiceImpl3 extends EchoServiceImpl {
-        
-             <bean id="rpcServerOptions" class="com.baidu.jprotobuf.pbrpc.transport.RpcServerOptions">
+}
+```
+```xml
+    <bean id="rpcServerOptions" class="com.baidu.jprotobuf.pbrpc.transport.RpcServerOptions">
         <property name="acceptorThreads" value="1"></property>
         <property name="workThreads" value="20"></property>
         <property name="httpServerPort" value="8866"></property>
-        </bean>
- ```java
- 
+    </bean>
+```
 
-更多使用示例参见 单元测试com.baidu.jprotobuf.pbrpc.spring.AnnotationRpcXmlConfigurationTest
+
+For more examples, see the unit test com.baidu.jprotobuf.pbrpc.spring.AnnotationRpcXmlConfigurationTest.
