@@ -114,7 +114,32 @@ public class ChannelPoolObjectFactory extends BasePooledObjectFactory<Connection
         Connection c = p.getObject();
         Channel channel = c.getFuture().channel();
         if (channel.isOpen() && channel.isActive()) {
+            close(channel);
+        }
+    }
+
+    /**
+     * Closes the channel, also when its event loop has died.
+     *
+     * <p>
+     * close() runs on the channel's event loop. Once that loop has terminated it rejects the task, and the socket
+     * would stay open for good. A terminated loop never touches the channel again, so close the socket from this
+     * thread instead. A loop that is merely shutting down still runs and must close its channels itself.
+     * closeForcibly() asserts it runs on the event loop; with assertions enabled that check fails and the socket stays
+     * open, which is no worse than before.
+     * </p>
+     *
+     * @param channel the channel
+     */
+    static void close(Channel channel) {
+        if (!channel.isRegistered() || !channel.eventLoop().isTerminated()) {
             channel.close();
+            return;
+        }
+        try {
+            channel.unsafe().closeForcibly();
+        } catch (Throwable t) {
+            LOGGER.log(Level.WARNING, "failed to close a channel whose event loop has terminated: " + channel, t);
         }
     }
 
@@ -123,9 +148,24 @@ public class ChannelPoolObjectFactory extends BasePooledObjectFactory<Connection
      */
     public boolean validateObject(PooledObject<Connection> p) {
         Connection c = p.getObject();
-        Channel channel = c.getFuture().channel();
-        return channel.isOpen() && channel.isActive();
+        return isUsable(c.getFuture().channel());
+    }
 
+    /**
+     * Whether a request sent on the channel can still be answered.
+     *
+     * <p>
+     * A channel whose event loop has died still reports open and active, yet nothing reads or writes it any more:
+     * every request sent on it waits out its whole timeout. Netty does not replace an event loop whose thread died, an
+     * OutOfMemoryError being the usual cause, and never moves a channel to another loop, so check the loop as well.
+     * </p>
+     *
+     * @param channel the channel
+     * @return true if the channel is connected and its event loop still serves it
+     */
+    static boolean isUsable(Channel channel) {
+        return channel.isOpen() && channel.isActive() && channel.isRegistered()
+                && !channel.eventLoop().isShuttingDown();
     }
 
     /**

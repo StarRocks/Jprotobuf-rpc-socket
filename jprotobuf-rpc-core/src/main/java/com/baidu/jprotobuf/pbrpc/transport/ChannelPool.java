@@ -99,7 +99,7 @@ public class ChannelPool {
                 pool.returnObject(channel);
             } else {
                 if (channel.getFuture().channel().isOpen()) {
-                    channel.getFuture().channel().close();
+                    ChannelPoolObjectFactory.close(channel.getFuture().channel());
                 }
             }
         } catch (Exception e) {

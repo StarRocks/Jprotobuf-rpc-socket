@@ -24,6 +24,8 @@ import org.slf4j.LoggerFactory;
 import com.baidu.jprotobuf.pbrpc.data.RpcDataPackage;
 
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelFutureListener;
 import io.netty.util.Timeout;
 
 /**
@@ -82,6 +84,13 @@ public class RpcChannel {
      * @return the reused connection
      */
     public synchronized Connection getReusedConnection() {
+        // The pool only screens a connection when it is borrowed, and this one is borrowed once and then kept, so a
+        // connection that broke afterwards, its event loop dead for instance, would be reused for good. Every call
+        // already hands it back to the pool when it completes, so just forget it here and borrow again: the pool
+        // drops the broken one when it is next lent out.
+        if (connection != null && !ChannelPoolObjectFactory.isUsable(connection.getFuture().channel())) {
+            connection = null;
+        }
         if (connection == null) {
             connection = getConnection();
         }
@@ -133,17 +142,58 @@ public class RpcChannel {
                 }
             }
         } else {
-            Channel channel = connection.getFuture().channel();
+            final Channel channel = connection.getFuture().channel();
             state.setChannel(channel);
 
             LOG.debug("Do send request with service name '" + rpcDataPackage.serviceName() + "' method name '"
                     + rpcDataPackage.methodName() + "' bound channel =>" + channel);
-            channel.writeAndFlush(state.getDataPackage());
+            // A request that never left must not wait for a response until onceTalkTimeout. Writes on a channel whose
+            // event loop has died fail at once, but only through the returned future, and a listener cannot help in
+            // that case: netty hands listener notifications to the same dead loop, which rejects them. So check the
+            // future right away, where such a failure is already visible, and listen only for later outcomes.
+            final ChannelFuture writeFuture;
+            try {
+                writeFuture = channel.writeAndFlush(state.getDataPackage());
+            } catch (RuntimeException e) {
+                failUnsentRequest(correlationId, channel, e);
+                return;
+            }
+            if (writeFuture.isDone()) {
+                if (!writeFuture.isSuccess()) {
+                    failUnsentRequest(correlationId, channel, writeFuture.cause());
+                }
+            } else {
+                writeFuture.addListener(new ChannelFutureListener() {
+                    @Override
+                    public void operationComplete(ChannelFuture future) {
+                        if (!future.isSuccess()) {
+                            failUnsentRequest(correlationId, channel, future.cause());
+                        }
+                    }
+                });
+            }
         }
 
         long callMethodEnd = System.currentTimeMillis();
         LOG.debug("profiling callMethod cost " + (callMethodEnd - callMethodStart) + "ms");
 
+    }
+
+    /**
+     * Fails a request whose write did not go through, unless a response or the timeout settled it first.
+     *
+     * @param correlationId the correlation id of the request
+     * @param channel the channel the request was written to
+     * @param cause why the write failed
+     */
+    private void failUnsentRequest(Long correlationId, Channel channel, Throwable cause) {
+        RpcClientCallState state = rpcClient.removePendingRequest(correlationId);
+        if (state != null) {
+            String message = "correlationId:" + correlationId + " failed to send request on channel =>" + channel
+                    + ": " + cause;
+            LOG.warn(message);
+            state.handleFailure(message);
+        }
     }
 
     /**
