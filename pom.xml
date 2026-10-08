@@ -1,5 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
+<!--
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
 <project xmlns="http://maven.apache.org/POM/4.0.0"
 	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
 	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
@@ -8,17 +22,17 @@
 	<parent>
 		<groupId>org.sonatype.oss</groupId>
 		<artifactId>oss-parent</artifactId>
-		<version>7</version>
+		<version>9</version>
 	</parent>
 
-	<groupId>com.baidu</groupId>
-	<artifactId>jprotobuf-rpc-socket</artifactId>
-	<version>4.2.2</version>
+	<groupId>com.starrocks</groupId>
+	<artifactId>jprotobuf-rpc-socket-starrocks</artifactId>
+	<version>1.0.0</version>
 	<packaging>pom</packaging>
 
-	<name>jprotobuf-rpc-socket</name>
-	<description>RPC implements </description>
-	<url>https://github.com/jhunters/jprotobuf/</url>
+	<name>jprotobuf-rpc-socket-starrocks</name>
+	<description>A Protobuf RPC implementation based on jprotobuf, adapted for StarRocks.</description>
+	<url>https://github.com/StarRocks/Jprotobuf-rpc-socket/</url>
 
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -27,7 +41,7 @@
 		<junit.version>4.13.1</junit.version>
 
 		<!-- Common libs -->
-		<jprotobuf.version>2.4.14</jprotobuf.version>
+		<jprotobuf.version>1.0.0</jprotobuf.version>
 		<jprotobuf-rpc-common.version>1.9</jprotobuf-rpc-common.version>
 		<commons-pool2.version>2.6.2</commons-pool2.version>
 		<netty-all.version>4.1.45.Final</netty-all.version>
@@ -42,13 +56,12 @@
 
 	<issueManagement>
 		<system>GitHub Issues</system>
-		<url>https://github.com/Baidu-ecom/Jprotobuf-rpc-socket/issues</url>
+		<url>https://github.com/StarRocks/Jprotobuf-rpc-socket/issues</url>
 	</issueManagement>
 
 	<scm>
-		<connection>scm:git:git://github.com/Baidu-ecom/Jprotobuf-rpc-socket.git</connection>
-		<developerConnection>scm:git:git@github.com:Baidu-ecom/Jprotobuf-rpc-socket.git</developerConnection>
-		<url>https://github.com/Baidu-ecom/Jprotobuf-rpc-socket</url>
+		<connection>https://github.com/StarRocks/Jprotobuf-rpc-socket.git</connection>
+		<url>https://github.com/StarRocks/Jprotobuf-rpc-socket</url>
 	</scm>
 
 	<licenses>
@@ -60,8 +73,8 @@
 	</licenses>
 
 	<organization>
-		<name>Baidu, Inc.</name>
-		<url>http://baidu.com</url>
+		<name>StarRocks, Inc.</name>
+		<url>https://www.mirrorship.cn</url>
 	</organization>
 
 	<modules>
@@ -71,11 +84,6 @@
 		<module>jprotobuf-rpc-core-spring2</module>
 		<module>jprotobuf-rpc-core-spring</module>
 		<module>jprotobuf-rpc-registry-redis</module>
-		<!-- 
-		<module>jprotobuf-rpc-registry-bns</module>
-		<module>jprotobuf-rpc-ext-validator</module>
-		<module>jprotobuf-rpc-spring-starter</module>
-		 -->
 	</modules>
 
 
@@ -87,8 +95,8 @@
 			<scope>test</scope>
 		</dependency>
 		<dependency>
-			<groupId>com.baidu</groupId>
-			<artifactId>jprotobuf</artifactId>
+			<groupId>com.starrocks</groupId>
+			<artifactId>jprotobuf-starrocks</artifactId>
 			<version>${jprotobuf.version}</version>
 			<scope>compile</scope>
 		</dependency>
@@ -163,7 +171,7 @@
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-gpg-plugin</artifactId>
-				<version>1.0</version>
+				<version>1.5</version>
 				<executions>
 					<execution>
 						<id>sign-artifacts</id>
@@ -173,6 +181,18 @@
 						</goals>
 					</execution>
 				</executions>
+			</plugin>
+
+			<plugin>
+				<groupId>org.sonatype.plugins</groupId>
+				<artifactId>nexus-staging-maven-plugin</artifactId>
+				<version>1.6.7</version>
+				<extensions>true</extensions>
+				<configuration>
+					<serverId>ossrh</serverId>
+					<nexusUrl>https://s01.oss.sonatype.org/</nexusUrl>
+					<autoReleaseAfterClose>true</autoReleaseAfterClose>
+				</configuration>
 			</plugin>
 
 			<plugin>
@@ -195,4 +215,14 @@
 
 		</plugins>
 	</build>
+	<distributionManagement>
+		<snapshotRepository>
+			<id>ossrh</id>
+			<url>https://s01.oss.sonatype.org/content/repositories/snapshots</url>
+		</snapshotRepository>
+		<repository>
+			<id>ossrh</id>
+			<url>https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+		</repository>
+	</distributionManagement>
 </project> 
